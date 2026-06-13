@@ -37,6 +37,19 @@ def test_conversion_invalide(texte):
         oc.convertir_texte_en_formule(texte)
 
 
+@pytest.mark.parametrize("texte, attendu", [
+    # Parenthèses imbriquées, mélange mots/symboles, « x » comme multiplication.
+    ("(trois plus ( 5 x 4 ) ) / 2", "( 3 + ( 5 * 4 ) ) / 2"),
+    ("deux fois (trois plus quatre)", "2 * ( 3 + 4 )"),
+    ("(3 + (5 * 4)) / 2", "( 3 + ( 5 * 4 ) ) / 2"),
+    ("cinq x quatre", "5 * 4"),
+    ("( ( 1 + 2 ) )", "( ( 1 + 2 ) )"),
+    ("trois plus 5 x 4", "3 + 5 * 4"),
+])
+def test_conversion_imbriquee(texte, attendu):
+    assert oc.convertir_texte_en_formule(texte) == attendu
+
+
 # --- trouver_calcul_prioritaire ---------------------------------------------
 
 @pytest.mark.parametrize("formule, gauche, operateur, droite", [
@@ -111,6 +124,11 @@ def test_remplacement_refuse_valeur_fausse():
     ("ouvre parenthèse deux plus trois ferme parenthèse fois quatre", 20),
     ("deux moins cinq plus dix", 7),          # passe par un résultat négatif
     ("cent divisé par quatre divisé par cinq", 5),
+    # Expressions imbriquées : parenthèses profondes réduites d'abord.
+    ("(trois plus ( 5 x 4 ) ) / 2", 11.5),
+    ("deux fois (trois plus quatre)", 14),
+    ("( ( 1 + 2 ) )", 3),
+    ("100 / ( 2 + 3 ) / 2", 10),
 ])
 def test_reduction_complete(texte, attendu):
     formule = oc.convertir_texte_en_formule(texte)

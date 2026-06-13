@@ -68,19 +68,62 @@ Ce qu'il faut retenir :
   par zéro ou un mot non reconnu donne un message lisible plutôt qu'une stack
   trace.
 
-## 3. Les 4 outils de la calculatrice
+## 3. Les outils de la calculatrice
 
-| Outil | Entrée | Sortie | Rôle |
+| Outil | Entrée | Sortie | Famille |
 |---|---|---|---|
-| `convertir_texte_en_formule` | `texte: str` | `str` | « trois fois quatre plus deux » donne `3 * 4 + 2` |
-| `trouver_calcul_prioritaire` | `formule: str` | `dict` | Indique le calcul binaire à faire en premier |
-| `calculer` | `gauche, operateur, droite` | `float` | Une seule opération entre deux nombres |
-| `remplacer_calcul_par_resultat` | `formule, sous_expression, valeur` | `str` | Réécrit la formule en injectant le résultat |
+| `convertir_texte_en_formule` | `texte: str` | `str` | pur Python |
+| `convertir_texte_en_formule_libre` | `texte: str` | `str` | LLM (validé) |
+| `trouver_calcul_prioritaire` | `formule: str` | `dict` | pur Python |
+| `calculer` | `gauche, operateur, droite` | `float` | pur Python |
+| `remplacer_calcul_par_resultat` | `formule, sous_expression, valeur` | `str` | pur Python |
 
 La résolution complète est une **boucle** : convertir une fois, puis répéter
 (trouver le prioritaire, calculer, remplacer) jusqu'à ce que la formule soit un
 seul nombre. C'est l'agent qui orchestre cette boucle (voir
 [docs/agent.md](agent.md)).
+
+Le parseur déterministe gère les **parenthèses imbriquées** et le **mélange
+mots/symboles** : `(trois plus ( 5 x 4 ) ) / 2` donne `( 3 + ( 5 * 4 ) ) / 2`
+(le « x » est compris comme multiplication). La réduction traite ensuite les
+parenthèses les plus profondes d'abord.
+
+### Deux familles d'outils, et le patron de robustesse
+
+Ce serveur expose volontairement deux types d'outils, pour illustrer les cas que
+l'on rencontre en pratique :
+
+- **Pur Python, déterministe** : la grande majorité. Pas d'appel externe,
+  testable unitairement, robuste. À **privilégier** dès que la logique peut
+  s'écrire en code.
+- **LLM** (`convertir_texte_en_formule_libre`) : pour les entrées trop libres
+  pour une grammaire fixe (« le double de trois », « la moitié de huit »). Le
+  modèle apporte la souplesse de compréhension.
+
+Le risque d'un outil LLM, c'est qu'il renvoie n'importe quoi. La règle d'or
+appliquée ici : **le LLM propose, le code déterministe dispose.** Concrètement
+([`serveur.py`](../mcp_server/serveur.py)) :
+
+```python
+@mcp.tool
+def convertir_texte_en_formule_libre(texte: str) -> str:
+    proposition = llm.proposer_formule(texte)      # le LLM propose
+    try:
+        return oc.normaliser_formule(proposition)  # le code valide / normalise
+    except oc.ErreurCalculatrice as e:
+        raise ToolError(...)                        # sinon, echec franc
+```
+
+La sortie n'est jamais renvoyée telle quelle : elle passe par le **même
+tokeniseur** que le reste du projet. Si le LLM produit une formule invalide,
+l'outil échoue avec un message clair plutôt que de propager du garbage. Les
+tests `test_outil_llm_*` ([tests/test_serveur_mcp.py](../tests/test_serveur_mcp.py))
+le prouvent en simulant le LLM (sortie valide normalisée, sortie invalide
+rejetée), sans dépendre d'un vrai modèle.
+
+Note de couplage : l'outil LLM a besoin d'Ollama (`OLLAMA_URL` et `MODELE` sont
+passés au service `mcp-server` dans le compose). Les outils pur Python, eux,
+n'ont aucune dépendance externe.
 
 ### Pourquoi `calculer` n'accepte que deux opérandes
 

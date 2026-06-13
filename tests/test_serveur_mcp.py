@@ -8,6 +8,7 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
+import llm
 import serveur
 from agent.boucle_react import extraire_donnees
 
@@ -17,6 +18,7 @@ async def test_decouverte_des_outils():
         noms = {outil.name for outil in await client.list_tools()}
     assert noms == {
         "convertir_texte_en_formule",
+        "convertir_texte_en_formule_libre",
         "trouver_calcul_prioritaire",
         "calculer",
         "remplacer_calcul_par_resultat",
@@ -57,3 +59,25 @@ async def test_les_erreurs_remontent_au_client():
         with pytest.raises(ToolError):
             await client.call_tool(
                 "convertir_texte_en_formule", {"texte": "bonjour le monde"})
+
+
+# --- l'outil LLM et son garde-fou deterministe -------------------------------
+# On simule le LLM (monkeypatch) pour tester le PATRON de robustesse sans
+# dependre d'un vrai modele : « le LLM propose, le code deterministe dispose ».
+
+async def test_outil_llm_normalise_une_sortie_valide(monkeypatch):
+    # Le LLM propose une formule correcte mais mal espacee.
+    monkeypatch.setattr(llm, "proposer_formule", lambda texte: "2*3")
+    async with Client(serveur.mcp) as client:
+        formule = extraire_donnees(await client.call_tool(
+            "convertir_texte_en_formule_libre", {"texte": "le double de trois"}))
+    assert formule == "2 * 3"
+
+
+async def test_outil_llm_rejette_une_sortie_invalide(monkeypatch):
+    # Le LLM propose du charabia : l'outil DOIT echouer (jamais de garbage).
+    monkeypatch.setattr(llm, "proposer_formule", lambda texte: "patate ( (")
+    async with Client(serveur.mcp) as client:
+        with pytest.raises(ToolError):
+            await client.call_tool(
+                "convertir_texte_en_formule_libre", {"texte": "n importe quoi"})

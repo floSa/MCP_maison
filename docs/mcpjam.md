@@ -57,7 +57,8 @@ Une fois connecté, MCPJam affiche le statut du serveur et la liste de ses outil
 
 ## 4. Lister et appeler les outils
 
-Vous devriez voir les 4 outils : `convertir_texte_en_formule`,
+Vous devriez voir les 5 outils : `convertir_texte_en_formule`,
+`convertir_texte_en_formule_libre` (l'outil LLM),
 `trouver_calcul_prioritaire`, `calculer`, `remplacer_calcul_par_resultat`.
 Cliquez sur l'un d'eux : MCPJam génère un formulaire à partir du **schéma**
 (les paramètres typés). Exemples à essayer :
@@ -70,6 +71,12 @@ Cliquez sur l'un d'eux : MCPJam génère un formulaire à partir du **schéma**
 | `remplacer_calcul_par_resultat` | `formule = "3 * 4 + 2", sous_expression = "3 * 4", valeur = 12` | `"12 + 2"` |
 
 Vous reproduisez ainsi, à la main, exactement ce que l'agent fait en boucle.
+
+Essayez aussi l'outil LLM `convertir_texte_en_formule_libre` avec une
+formulation libre, par exemple `texte = "le double de trois plus un"` : le
+modèle propose une formule (`2 * 3 + 1`), revalidée par le code déterministe
+avant d'être renvoyée. C'est plus lent (un appel au LLM) et non garanti pour
+toute formulation, contrairement à `convertir_texte_en_formule`.
 
 ## 5. Tester l'anti-triche sans LLM
 

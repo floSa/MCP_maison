@@ -1,0 +1,11 @@
+# Configuration Streamlit de l'interface.
+#
+# toolbarMode = "minimal" retire les « outils developpeur » (Rerun, Clear
+# caches) ET leurs raccourcis clavier « R » / « C ». Sans ca, appuyer sur
+# Ctrl+C pour copier du texte declenche la boite « Clear caches », car
+# Streamlit ecoute la touche « c » sans verifier la touche Ctrl.
+[client]
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false

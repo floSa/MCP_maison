@@ -28,6 +28,13 @@ def est_nombre(texte: str) -> bool:
     return re.fullmatch(r"-?\d+(\.\d+)?", str(texte).strip()) is not None
 
 
+# Les deux outils de conversion (pur Python deterministe et LLM de secours)
+# jouent le meme role pour l'arbitre : produire la formule initiale. On les
+# traite donc de maniere interchangeable comme « premiere etape ».
+OUTILS_CONVERSION = {"convertir_texte_en_formule",
+                     "convertir_texte_en_formule_libre"}
+
+
 class Arbitre:
     def __init__(self, oracle_priorite):
         # oracle_priorite : fonction async (formule) -> dict, branchée sur
@@ -42,7 +49,7 @@ class Arbitre:
 
     async def verifier_appel(self, nom: str, args: dict):
         """Renvoie un message de refus (str), ou None si l'appel est autorisé."""
-        if nom == "convertir_texte_en_formule":
+        if nom in OUTILS_CONVERSION:
             if self.formule_courante is not None:
                 return ("Refusé : le texte a déjà été converti. La formule "
                         f"courante est « {self.formule_courante} ».")
@@ -101,7 +108,7 @@ class Arbitre:
     # -- mise à jour de l'état APRÈS exécution réussie -----------------------
 
     def noter_resultat(self, nom: str, args: dict, resultat) -> None:
-        if nom == "convertir_texte_en_formule":
+        if nom in OUTILS_CONVERSION:
             self.formule_courante = str(resultat)
             self.formule_initiale = str(resultat)
         elif nom == "calculer":

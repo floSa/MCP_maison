@@ -14,6 +14,7 @@ pytestmark = pytest.mark.e2e
 
 AGENT_URL = os.environ.get("AGENT_URL", "http://localhost:8080")
 UI_URL = os.environ.get("UI_URL", "http://ui:8501")
+MCP_URL = os.environ.get("MCP_URL", "http://localhost:8000/mcp/")
 DELAI = httpx.Timeout(600.0)
 
 
@@ -75,3 +76,20 @@ def test_streaming_sse():
     final = evenements[-1]
     assert final["valide"] is True, final
     assert abs(final["reponse"] - 14) < 1e-6
+
+
+async def test_outil_llm_libre_e2e():
+    """L'outil LLM (convertir_texte_en_formule_libre) repond, et sa sortie est
+    une formule VALIDE (le serveur la valide avant de la renvoyer)."""
+    from fastmcp import Client
+    import outils_calcul as oc
+    from agent.boucle_react import extraire_donnees
+
+    async with Client(MCP_URL) as client:
+        formule = extraire_donnees(await client.call_tool(
+            "convertir_texte_en_formule_libre", {"texte": "trois fois quatre"}))
+
+    assert isinstance(formule, str) and formule.strip()
+    # Si l'outil a renvoye une formule, c'est qu'elle est valide : on le confirme
+    # en la passant au tokeniseur deterministe (ne doit pas lever).
+    oc.normaliser_formule(formule)

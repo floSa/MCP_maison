@@ -4,6 +4,18 @@ Chaque fonction décorée par @mcp.tool devient un outil MCP : son nom, sa
 docstring et ses annotations de types sont automatiquement transformés en
 schéma JSON que le LLM peut découvrir et appeler.
 
+Deux familles d'outils, volontairement, pour montrer les cas de figure :
+
+  - Outils PUR PYTHON, déterministes (convertir_texte_en_formule,
+    trouver_calcul_prioritaire, calculer, remplacer_calcul_par_resultat) :
+    rapides, testables, robustes, sans aucun appel externe. À privilégier.
+
+  - Un outil LLM (convertir_texte_en_formule_libre) : il délègue au modèle la
+    compréhension d'une formulation libre, MAIS sa sortie est ensuite validée
+    par le tokeniseur déterministe. C'est le patron de robustesse clé :
+    « le LLM propose, le code déterministe dispose » — jamais de sortie
+    non vérifiée.
+
 Lancement : python serveur.py  (transport HTTP, endpoint /mcp/)
 """
 
@@ -12,6 +24,7 @@ from fastmcp.exceptions import ToolError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+import llm
 import outils_calcul as oc
 
 mcp = FastMCP(
@@ -36,6 +49,27 @@ def convertir_texte_en_formule(texte: str) -> str:
         return oc.convertir_texte_en_formule(texte)
     except oc.ErreurCalculatrice as e:
         raise ToolError(str(e)) from None
+
+
+@mcp.tool
+def convertir_texte_en_formule_libre(texte: str) -> str:
+    """Convertit une expression en langage NATUREL LIBRE en formule, via le LLM.
+
+    À utiliser en SECOURS quand convertir_texte_en_formule (déterministe) échoue
+    sur une formulation inhabituelle, par exemple « le double de trois plus un »
+    ou « la moitié de huit ». Le LLM propose une formule ; elle est ensuite
+    validée et normalisée par le tokeniseur déterministe. Si le LLM produit
+    quelque chose d'invalide, l'outil échoue clairement (aucune sortie douteuse).
+    """
+    proposition = llm.proposer_formule(texte)
+    try:
+        # Le code déterministe a le dernier mot : il valide et normalise.
+        return oc.normaliser_formule(proposition)
+    except oc.ErreurCalculatrice as e:
+        raise ToolError(
+            f"Le LLM a proposé « {proposition} », qui n'est pas une formule "
+            f"valide ({e}). Reformulez, ou utilisez convertir_texte_en_formule."
+        ) from None
 
 
 @mcp.tool

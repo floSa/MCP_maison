@@ -96,6 +96,9 @@ Puis :
 
 - **Interface Streamlit** (recommandée) : http://localhost:8501
   Tapez une question, le raisonnement et les appels MCP s'affichent au fil de l'eau.
+  (Les raccourcis développeur de Streamlit — dont la touche « C » qui ouvrait la
+  boîte « Clear caches » au moindre Ctrl+C — sont désactivés via
+  [`ui/.streamlit/config.toml`](ui/.streamlit/config.toml), `toolbarMode = "minimal"`.)
 - **MCPJam** (inspecteur MCP) : http://localhost:6274
   Connectez le serveur `http://mcp-server:8000/mcp/` et appelez les outils à la main.
 - **API** :
@@ -144,17 +147,29 @@ Le compose le monte via `${OLLAMA_MODELES:-ollama_models}:/root/.ollama`.
 Commentez la variable pour utiliser un volume Docker local au projet. Le service
 `ollama-init` fait un `ollama pull` du modèle s'il manque, au premier démarrage.
 
-## Les 4 outils MCP
+## Les outils MCP
 
 Définis dans [`mcp_server/serveur.py`](mcp_server/serveur.py), logique pure dans
-[`mcp_server/outils_calcul.py`](mcp_server/outils_calcul.py) :
+[`mcp_server/outils_calcul.py`](mcp_server/outils_calcul.py). Deux familles,
+volontairement, pour montrer les cas de figure.
+
+**Outils pur Python, déterministes** (rapides, testables, robustes) :
 
 1. **`convertir_texte_en_formule`** — « trois fois quatre plus deux » donne `3 * 4 + 2`
-   (nombres en lettres de 0 à 100, chiffres, décimaux, parenthèses).
+   (nombres en lettres de 0 à 100, chiffres, décimaux, et **parenthèses
+   imbriquées** : `(trois plus ( 5 x 4 ) ) / 2` donne `( 3 + ( 5 * 4 ) ) / 2`).
 2. **`trouver_calcul_prioritaire`** — `3 * 4 + 2` indique qu'il faut d'abord faire `3 * 4`
-   (parenthèses d'abord, puis `*` et `/`, puis de gauche à droite).
+   (parenthèses les plus profondes d'abord, puis `*` et `/`, puis de gauche à droite).
 3. **`calculer`** — **exactement deux opérandes** et un opérateur : `(3, "*", 4)` donne `12`.
 4. **`remplacer_calcul_par_resultat`** — `3 * 4 + 2` plus (`3 * 4`, `12`) donne `12 + 2`.
+
+**Outil LLM** (pour les formulations libres que le déterministe ne couvre pas) :
+
+5. **`convertir_texte_en_formule_libre`** — délègue au modèle la compréhension
+   d'une formulation inhabituelle (« le double de trois plus un » donne
+   `2 * 3 + 1`), **mais sa sortie est revalidée par le tokeniseur déterministe** :
+   si le LLM produit une formule invalide, l'outil échoue clairement. C'est le
+   patron de robustesse clé : **le LLM propose, le code déterministe dispose.**
 
 Pourquoi `calculer` ne prend que deux opérandes ? Parce que c'est **le coeur de
 l'anti-triche** : en forçant une seule opération binaire à la fois, le modèle ne

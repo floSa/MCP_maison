@@ -1,3 +1,8 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Fichiers temporaires / de mise au point
+*.clean
+debug_payload.json
+*.tmp

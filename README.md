@@ -6,20 +6,62 @@ calculer lui-même** : chaque opération passe par des outils exposés via
 **MCP** (Model Context Protocol), et un **arbitre** vérifie chaque étape.
 Si le modèle tente de répondre de tête, il est refusé.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    user(["👤 Vous"])
+
+    subgraph stack["🐳 docker compose"]
+        direction LR
+        ui["🖥️ <b>ui</b> · Streamlit<br/>:8501<br/><i>raisonnement 💭 + outils 🔧</i>"]
+        mcpjam["🔍 <b>mcpjam</b><br/>:6274<br/><i>inspecteur MCP</i>"]
+
+        subgraph agent["⚙️ <b>agent</b> · FastAPI · :8080"]
+            react["🔁 Boucle ReAct"]
+            arbitre["🛡️ <b>Arbitre</b><br/>anti-triche"]
+            react <--> arbitre
+        end
+
+        ollama["🧠 <b>ollama</b> · :11434<br/>gemma4:e4b<br/><i>modèles partagés (.env)</i>"]
+        mcp["🧰 <b>mcp-server</b> · FastMCP · :8000<br/>convertir · trouver_priorité<br/>calculer · remplacer"]
+    end
+
+    user -- "question FR" --> ui
+    ui -- "POST /calcul" --> agent
+    mcpjam -. "teste à la main" .-> mcp
+    react -- "chat + tools" --> ollama
+    ollama -- "appels d'outils" --> react
+    react -- "exécute l'outil" --> mcp
+    mcp -- "résultat" --> react
+
+    classDef box fill:#1e293b,stroke:#475569,color:#e2e8f0
+    classDef shield fill:#7f1d1d,stroke:#ef4444,color:#fee2e2
+    class ui,mcpjam,ollama,mcp,react box
+    class arbitre shield
 ```
-            ┌────────────────────────── docker compose ──────────────────────────┐
-            │                                                                    │
- :8501 ───▶ │  ui (Streamlit)        agent (FastAPI, :8080)                      │
- vous       │  raisonnement 💭  ───▶ ┌──────────────────┐    appels d'outils     │
-            │  + outils 🔧 visibles  │  boucle ReAct    │ ─────────────────────┐ │
-            │                        │  + ARBITRE       │ ◀──────────────────┐ │ │
-            │                        └────────┬─────────┘     résultats      │ │ │
-            │                                 │ /api/chat                    ▼ │ │
-            │  ollama (:11434) ◀──────────────┘             mcp-server (:8000) │ │
-            │  gemma4:e4b — modèles PARTAGÉS entre projets  (FastMCP)  ▲       │ │
-            │  (dossier hôte, cf. .env)                                │       │ │
- :6274 ───▶ │  mcpjam — inspecteur MCP ─────────────────────────────────┘       │ │
-            └────────────────────────────────────────────────────────────────────┘
+
+**Le flux d'une question** (« trois fois quatre plus deux » → 14) :
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as 👤 Vous
+    participant A as ⚙️ Agent · ReAct + Arbitre
+    participant L as 🧠 LLM · gemma4
+    participant M as 🧰 MCP · outils
+
+    U->>A: « trois fois quatre plus deux »
+    loop Tant que la formule n'est pas réduite à un nombre
+        A->>L: conversation + outils disponibles
+        L-->>A: 💭 pensée + 🔧 appel d'outil souhaité
+        A->>A: 🛡️ l'arbitre vérifie l'appel
+        Note over A: refuse si ce n'est pas<br/>le calcul prioritaire réel
+        A->>M: exécute l'outil validé
+        M-->>A: résultat déterministe
+    end
+    A->>A: 🛡️ valide la réponse finale<br/>(doit venir des outils)
+    A-->>U: ✅ 3 * 4 + 2 = 14
 ```
 
 ## Les briques

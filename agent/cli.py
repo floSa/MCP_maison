@@ -1,7 +1,10 @@
-"""CLI de l'agent : affiche la trace ReAct pas à pas, puis la réponse.
+"""CLI de l'agent : affiche la trace ReAct pas a pas, puis la reponse.
 
 Usage (dans le conteneur) :
     docker compose exec agent python -m agent.cli "trois fois quatre plus deux"
+
+Pratique pour observer le raisonnement et les appels MCP directement dans le
+terminal, sans interface graphique.
 """
 
 import asyncio
@@ -16,17 +19,19 @@ from agent.llm_ollama import LLMOllama
 
 
 def _afficher_etape(etape: dict) -> None:
-    if etape["type"] == "pensee":
-        print(f"  💭 {etape['contenu'][:300]}")
-    elif etape["type"] == "outil":
+    """Affiche une etape de la trace, prefixee par un libelle texte."""
+    type_etape = etape["type"]
+    if type_etape == "pensee":
+        print(f"  [pensee]  {etape['contenu'][:300]}")
+    elif type_etape == "outil":
         args = json.dumps(etape["arguments"], ensure_ascii=False)
         resultat = json.dumps(etape["resultat"], ensure_ascii=False)
-        print(f"  🔧 {etape['nom']}({args})")
-        print(f"     ↳ {resultat}")
-    elif etape["type"] == "refus_arbitre":
-        print(f"  ⛔ ARBITRE — {etape['detail']}")
-    else:
-        print(f"  ⚠️  {etape['nom']} — {etape['detail']}")
+        print(f"  [MCP]     {etape['nom']}({args})")
+        print(f"            -> {resultat}")
+    elif type_etape == "refus_arbitre":
+        print(f"  [ARBITRE] refuse : {etape['detail']}")
+    else:  # erreur_outil
+        print(f"  [ERREUR]  {etape['nom']} : {etape['detail']}")
 
 
 def main() -> None:
@@ -41,7 +46,7 @@ def main() -> None:
         client_mcp=Client(os.environ.get("MCP_URL", "http://localhost:8000/mcp/")),
         guidage=os.environ.get("GUIDAGE", "1") != "0",
     )
-    print(f"❓ {question}\n")
+    print(f"Question : {question}\n")
     resultat = asyncio.run(agent.resoudre(question))
     for etape in resultat["etapes"]:
         _afficher_etape(etape)
@@ -50,10 +55,10 @@ def main() -> None:
         reponse = resultat["reponse"]
         if float(reponse).is_integer():
             reponse = int(reponse)
-        print(f"✅ {resultat['formule']} = {reponse} "
-              f"({resultat['iterations']} itérations, réponse validée par l'arbitre)")
+        print(f"[OK] {resultat['formule']} = {reponse} "
+              f"({resultat['iterations']} iterations, reponse validee par l'arbitre)")
     else:
-        print(f"❌ Échec : {resultat.get('erreur')}")
+        print(f"[ECHEC] {resultat.get('erreur')}")
         sys.exit(2)
 
 

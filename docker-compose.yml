@@ -18,6 +18,17 @@ services:
   ollama:
     image: ollama/ollama:latest
     container_name: calculatrice-ollama
+    # Acceleration GPU : Ollama detecte et utilise automatiquement le GPU une
+    # fois qu'il y a acces (necessite le toolkit nvidia-container cote hote).
+    # Sur GPU, l'inference passe de ~2 min a quelques secondes. Si vous n'avez
+    # pas de GPU nvidia, commentez ce bloc « deploy » : Ollama tournera sur CPU.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     volumes:
       # OLLAMA_MODELES (.env) pointe vers un dossier hôte PARTAGÉ entre
       # projets : les modèles ne sont téléchargés qu'une seule fois.

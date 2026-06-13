@@ -1,8 +1,12 @@
-"""Interface Streamlit : on voit le raisonnement du LLM et chaque outil MCP.
+"""Interface Streamlit en mode chat : raisonnement du modele et appels MCP en direct.
 
-L'UI ne contient AUCUNE logique métier : elle envoie la question à l'API de
-l'agent (POST /calcul) et met en scène la trace renvoyée — pensées du modèle,
-appels d'outils MCP, refus de l'arbitre, réponse finale validée.
+L'UI ne contient AUCUNE logique metier. Elle se contente de :
+  1. envoyer la question a l'endpoint SSE de l'agent (POST /calcul/stream) ;
+  2. afficher chaque evenement (pensee du modele, appel d'outil MCP, refus de
+     l'arbitre, resultat final) DES qu'il arrive, au fil du flux.
+
+C'est volontairement ce que l'on met en avant : le raisonnement pas a pas et
+chaque appel au serveur MCP, avec ses arguments et son resultat.
 """
 
 import json
@@ -13,118 +17,165 @@ import streamlit as st
 
 AGENT_URL = os.environ.get("AGENT_URL", "http://localhost:8080")
 
-st.set_page_config(page_title="Calculatrice agent ReAct", page_icon="🧮",
-                   layout="centered")
-
+# Quelques questions toutes pretes, proposees dans la barre laterale.
 EXEMPLES = [
     "trois fois quatre plus deux",
     "dix moins deux fois trois",
-    "ouvre parenthèse deux plus trois ferme parenthèse fois quatre",
-    "cent divisé par quatre divisé par cinq",
+    "ouvre parenthese deux plus trois ferme parenthese fois quatre",
+    "cent divise par quatre divise par cinq",
 ]
+
+st.set_page_config(page_title="Calculatrice agent ReAct", layout="centered")
 
 
 # ---------------------------------------------------------------------------
-# Barre latérale : état du service + exemples
+# Communication avec l'agent
+# ---------------------------------------------------------------------------
+
+def flux_sse(question: str):
+    """Generateur : produit chaque evenement renvoye par /calcul/stream.
+
+    Le serveur emet du Server-Sent Events : des lignes « data: <json> »
+    separees par des lignes vides. On ne garde que les lignes utiles.
+    """
+    with httpx.stream(
+        "POST",
+        f"{AGENT_URL}/calcul/stream",
+        json={"question": question},
+        timeout=httpx.Timeout(600.0),
+    ) as reponse:
+        reponse.raise_for_status()
+        for ligne in reponse.iter_lines():
+            if ligne.startswith("data: "):
+                yield json.loads(ligne[len("data: "):])
+
+
+# ---------------------------------------------------------------------------
+# Rendu d'un evenement de la trace ReAct
+# ---------------------------------------------------------------------------
+
+def _afficher_resultat_outil(colonne, resultat):
+    colonne.caption("Resultat")
+    if isinstance(resultat, (dict, list)):
+        colonne.json(resultat)
+    else:
+        colonne.code(json.dumps(resultat, ensure_ascii=False), language="json")
+
+
+def afficher_evenement(evenement: dict) -> None:
+    """Met en scene un evenement selon son type."""
+    type_evenement = evenement["type"]
+
+    if type_evenement == "pensee":
+        # Le raisonnement du modele : ce que l'utilisateur veut voir.
+        with st.expander("Raisonnement du modele", expanded=True):
+            st.markdown(evenement["contenu"])
+
+    elif type_evenement == "outil":
+        # Un appel MCP reussi : nom de l'outil, arguments, resultat.
+        with st.container(border=True):
+            st.markdown(f"**Appel MCP** &rarr; `{evenement['nom']}`")
+            col_args, col_res = st.columns(2)
+            col_args.caption("Arguments")
+            col_args.json(evenement["arguments"])
+            _afficher_resultat_outil(col_res, evenement["resultat"])
+
+    elif type_evenement == "refus_arbitre":
+        proposition = evenement.get("reponse_proposee")
+        if proposition:
+            st.error(f"**Arbitre** &mdash; {evenement['detail']}\n\n"
+                     f"Reponse proposee par le modele : `{proposition}`")
+        else:
+            appel = (f"{evenement.get('nom')}"
+                     f"({json.dumps(evenement.get('arguments', {}), ensure_ascii=False)})")
+            st.error(f"**Arbitre** &mdash; {evenement['detail']}\n\n"
+                     f"Appel refuse : `{appel}`")
+
+    elif type_evenement == "erreur_outil":
+        st.warning(f"Erreur de l'outil `{evenement.get('nom')}` : "
+                   f"{evenement['detail']}")
+
+    elif type_evenement == "fin":
+        if evenement["valide"]:
+            reponse = evenement["reponse"]
+            if float(reponse).is_integer():
+                reponse = int(reponse)
+            st.success(f"### {evenement['formule']} = {reponse}\n"
+                       f"{evenement['iterations']} iterations &mdash; reponse "
+                       f"construite par les outils et validee par l'arbitre.")
+        else:
+            st.error(f"### Echec\n{evenement.get('erreur', 'raison inconnue')}")
+
+
+def afficher_tour(question: str, evenements: list) -> None:
+    """Reaffiche un echange deja termine (depuis l'historique)."""
+    with st.chat_message("user"):
+        st.markdown(question)
+    with st.chat_message("assistant"):
+        for evenement in evenements:
+            afficher_evenement(evenement)
+
+
+# ---------------------------------------------------------------------------
+# Barre laterale : etat du service et exemples
 # ---------------------------------------------------------------------------
 
 with st.sidebar:
-    st.header("⚙️ Service")
+    st.header("Service")
     try:
         sante = httpx.get(f"{AGENT_URL}/sante", timeout=5).json()
-        st.success(f"Agent en ligne — modèle `{sante.get('modele', '?')}`")
+        st.success(f"Agent en ligne &mdash; modele `{sante.get('modele', '?')}`")
     except Exception:
         st.error(f"Agent injoignable ({AGENT_URL})")
-    st.header("💡 Exemples")
+
+    st.header("Exemples")
     for exemple in EXEMPLES:
         if st.button(exemple, use_container_width=True):
-            st.session_state["question"] = exemple
+            st.session_state["question_en_attente"] = exemple
+
     st.caption(
-        "L'agent ne calcule jamais lui-même : chaque opération passe par les "
-        "outils MCP, et un arbitre rejette toute réponse non construite par "
-        "les outils."
+        "L'agent ne calcule jamais lui-meme : chaque operation passe par les "
+        "outils MCP, et un arbitre rejette toute reponse qui n'a pas ete "
+        "construite par les outils."
     )
 
 
 # ---------------------------------------------------------------------------
-# Mise en scène d'une étape de la trace ReAct
+# Corps : titre, historique, saisie
 # ---------------------------------------------------------------------------
 
-def afficher_etape(etape: dict) -> None:
-    if etape["type"] == "pensee":
-        with st.expander("💭 Raisonnement du modèle", expanded=False):
-            st.markdown(etape["contenu"])
-    elif etape["type"] == "outil":
-        with st.expander(f"🔧 Outil MCP : `{etape['nom']}`", expanded=True):
-            colonne_args, colonne_resultat = st.columns(2)
-            with colonne_args:
-                st.caption("Arguments")
-                st.json(etape["arguments"])
-            with colonne_resultat:
-                st.caption("Résultat")
-                resultat = etape["resultat"]
-                if isinstance(resultat, (dict, list)):
-                    st.json(resultat)
-                else:
-                    st.code(json.dumps(resultat, ensure_ascii=False),
-                            language="json")
-    elif etape["type"] == "refus_arbitre":
-        proposition = etape.get("reponse_proposee")
-        if proposition:
-            st.error(f"⛔ **Arbitre** — {etape['detail']}\n\n"
-                     f"*Réponse proposée par le modèle :* `{proposition}`")
-        else:
-            st.error(f"⛔ **Arbitre** — {etape['detail']}\n\n"
-                     f"*Appel refusé :* `{etape.get('nom')}"
-                     f"({json.dumps(etape.get('arguments', {}), ensure_ascii=False)})`")
-    elif etape["type"] == "erreur_outil":
-        st.warning(f"⚠️ Erreur de l'outil `{etape.get('nom')}` : {etape['detail']}")
-
-
-# ---------------------------------------------------------------------------
-# Corps de la page
-# ---------------------------------------------------------------------------
-
-st.title("🧮 Calculatrice agent ReAct")
+st.title("Calculatrice agent ReAct")
 st.markdown(
-    "Posez un calcul **en français** : le petit LLM local raisonne en boucle "
-    "*Penser → Agir → Observer* et n'a le droit de calculer **qu'avec les "
-    "outils MCP**."
+    "Posez un calcul **en francais**. Le petit LLM local raisonne en boucle "
+    "*Penser -> Agir -> Observer* et n'a le droit de calculer **qu'avec les "
+    "outils MCP**. Le raisonnement et les appels MCP s'affichent en direct."
 )
 
-question = st.text_input(
-    "Votre question",
-    value=st.session_state.get("question", EXEMPLES[0]),
-    key="champ_question",
-)
+if "historique" not in st.session_state:
+    st.session_state["historique"] = []
 
-if st.button("Calculer", type="primary"):
+# Reaffichage des echanges precedents.
+for tour in st.session_state["historique"]:
+    afficher_tour(tour["question"], tour["evenements"])
+
+# Nouvelle question : soit tapee, soit issue d'un bouton d'exemple.
+question = st.chat_input("Ecrivez un calcul, par ex. : trois fois quatre plus deux")
+if not question and "question_en_attente" in st.session_state:
+    question = st.session_state.pop("question_en_attente")
+
+if question:
     with st.chat_message("user"):
-        st.write(question)
+        st.markdown(question)
 
-    with st.spinner("Le LLM réfléchit (inférence CPU locale, patience)…"):
-        try:
-            reponse_http = httpx.post(f"{AGENT_URL}/calcul",
-                                      json={"question": question},
-                                      timeout=600)
-            reponse_http.raise_for_status()
-            donnees = reponse_http.json()
-        except Exception as erreur:
-            st.error(f"Appel de l'agent impossible : {erreur}")
-            st.stop()
-
+    evenements = []
     with st.chat_message("assistant"):
-        for etape in donnees["etapes"]:
-            afficher_etape(etape)
+        try:
+            # Chaque evenement est rendu DES son arrivee : effet streaming.
+            for evenement in flux_sse(question):
+                evenements.append(evenement)
+                afficher_evenement(evenement)
+        except Exception as erreur:  # noqa: BLE001
+            st.error(f"Impossible de joindre l'agent : {erreur}")
 
-        if donnees["valide"]:
-            reponse = donnees["reponse"]
-            if float(reponse).is_integer():
-                reponse = int(reponse)
-            st.success(
-                f"### ✅ {donnees['formule']} = {reponse}\n"
-                f"{donnees['iterations']} itérations — réponse construite par "
-                f"les outils et validée par l'arbitre."
-            )
-        else:
-            st.error(f"### ❌ Échec — {donnees.get('erreur', 'raison inconnue')}")
+    st.session_state["historique"].append(
+        {"question": question, "evenements": evenements})

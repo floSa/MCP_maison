@@ -1,9 +1,10 @@
 """Niveau 4 — tests de bout en bout : stack Docker complète + VRAI petit LLM.
 
 Lancement : docker compose --profile e2e run --rm tests-e2e
-(le LLM tourne sur CPU : chaque question prend de quelques secondes à ~2 min)
+(sur GPU une question prend quelques secondes ; sur CPU jusqu'à ~2 min)
 """
 
+import json
 import os
 
 import httpx
@@ -54,3 +55,23 @@ def test_priorite_respectee():
     donnees = reponse.json()
     assert donnees["valide"] is True, donnees
     assert abs(donnees["reponse"] - 4) < 1e-6   # 10 - (2*3), pas (10-2)*3
+
+
+def test_streaming_sse():
+    """L'endpoint /calcul/stream emet bien des evenements SSE au fil de l'eau,
+    dont au moins un appel d'outil MCP et un evenement final valide."""
+    evenements = []
+    with httpx.stream("POST", f"{AGENT_URL}/calcul/stream",
+                      json={"question": "trois fois quatre plus deux"},
+                      timeout=DELAI) as reponse:
+        assert reponse.status_code == 200
+        for ligne in reponse.iter_lines():
+            if ligne.startswith("data: "):
+                evenements.append(json.loads(ligne[len("data: "):]))
+
+    types = [e["type"] for e in evenements]
+    assert "outil" in types          # au moins un appel MCP a ete emis
+    assert types[-1] == "fin"        # le dernier evenement resume le resultat
+    final = evenements[-1]
+    assert final["valide"] is True, final
+    assert abs(final["reponse"] - 14) < 1e-6

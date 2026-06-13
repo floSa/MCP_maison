@@ -1,188 +1,166 @@
-# 🧮 Tutoriel : un agent ReAct + MCP avec un petit LLM local, sans triche
+# Calculatrice agent ReAct + MCP avec un petit LLM local
 
-Un projet **entièrement dockerisé** où un petit LLM local résout des calculs
-posés en français — « *trois fois quatre plus deux* » — **sans jamais
-calculer lui-même** : chaque opération passe par des outils exposés via
-**MCP** (Model Context Protocol), et un **arbitre** vérifie chaque étape.
-Si le modèle tente de répondre de tête, il est refusé.
+Un projet **entièrement dockerisé**, pensé comme un **socle réutilisable** pour
+construire des agents qui s'appuient sur des serveurs **MCP** (Model Context
+Protocol). Le cas d'école : un petit LLM local résout des calculs posés en
+français — « *trois fois quatre plus deux* » — **sans jamais calculer
+lui-même**. Chaque opération passe par des outils exposés via MCP, et un
+**arbitre** vérifie chaque étape : si le modèle tente de répondre de tête, il
+est refusé.
+
+L'objectif pédagogique : voir clairement **le raisonnement du modèle** et **les
+appels MCP**, étape par étape, en direct dans une interface de chat.
+
+> Documentation détaillée, en mode tutoriel, dans le dossier [`docs/`](docs/) :
+> [l'agent ReAct](docs/agent.md) · [le serveur MCP](docs/mcp.md) ·
+> [MCPJam, l'inspecteur](docs/mcpjam.md).
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    user(["👤 Vous"])
+    user(["Utilisateur"])
 
-    subgraph stack["🐳 docker compose"]
+    subgraph stack["docker compose"]
         direction LR
-        ui["🖥️ <b>ui</b> · Streamlit<br/>:8501<br/><i>raisonnement 💭 + outils 🔧</i>"]
-        mcpjam["🔍 <b>mcpjam</b><br/>:6274<br/><i>inspecteur MCP</i>"]
+        ui["ui - Streamlit<br/>:8501<br/>raisonnement + appels MCP"]
+        mcpjam["mcpjam<br/>:6274<br/>inspecteur MCP"]
 
-        subgraph agent["⚙️ <b>agent</b> · FastAPI · :8080"]
-            react["🔁 Boucle ReAct"]
-            arbitre["🛡️ <b>Arbitre</b><br/>anti-triche"]
+        subgraph agent["agent - FastAPI - :8080"]
+            react["Boucle ReAct"]
+            arbitre["Arbitre<br/>anti-triche"]
             react <--> arbitre
         end
 
-        ollama["🧠 <b>ollama</b> · :11434<br/>gemma4:e4b<br/><i>modèles partagés (.env)</i>"]
-        mcp["🧰 <b>mcp-server</b> · FastMCP · :8000<br/>convertir · trouver_priorité<br/>calculer · remplacer"]
+        ollama["ollama - :11434<br/>gemma4:e4b (GPU)"]
+        mcp["mcp-server - FastMCP - :8000<br/>convertir, trouver_prioritaire,<br/>calculer, remplacer"]
     end
 
-    user -- "question FR" --> ui
-    ui -- "POST /calcul" --> agent
-    mcpjam -. "teste à la main" .-> mcp
-    react -- "chat + tools" --> ollama
-    ollama -- "appels d'outils" --> react
-    react -- "exécute l'outil" --> mcp
-    mcp -- "résultat" --> react
+    user -->|question FR| ui
+    ui -->|POST /calcul/stream| agent
+    mcpjam -.->|teste a la main| mcp
+    react -->|chat + tools| ollama
+    ollama -->|appels d'outils| react
+    react -->|execute l'outil valide| mcp
+    mcp -->|resultat| react
 
-    classDef box fill:#1e293b,stroke:#475569,color:#e2e8f0
-    classDef shield fill:#7f1d1d,stroke:#ef4444,color:#fee2e2
-    class ui,mcpjam,ollama,mcp,react box
-    class arbitre shield
+    classDef boite fill:#1e293b,stroke:#475569,color:#e2e8f0
+    classDef bouclier fill:#7f1d1d,stroke:#ef4444,color:#fee2e2
+    class ui,mcpjam,ollama,mcp,react boite
+    class arbitre bouclier
 ```
 
-**Le flux d'une question** (« trois fois quatre plus deux » → 14) :
+Le flux d'une question (« trois fois quatre plus deux » donne 14) :
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant U as 👤 Vous
-    participant A as ⚙️ Agent · ReAct + Arbitre
-    participant L as 🧠 LLM · gemma4
-    participant M as 🧰 MCP · outils
+    participant U as Utilisateur
+    participant A as Agent ReAct + Arbitre
+    participant L as LLM gemma4
+    participant M as MCP outils
 
-    U->>A: « trois fois quatre plus deux »
-    loop Tant que la formule n'est pas réduite à un nombre
+    U->>A: trois fois quatre plus deux
+    loop Tant que la formule n'est pas un seul nombre
         A->>L: conversation + outils disponibles
-        L-->>A: 💭 pensée + 🔧 appel d'outil souhaité
-        A->>A: 🛡️ l'arbitre vérifie l'appel
-        Note over A: refuse si ce n'est pas<br/>le calcul prioritaire réel
-        A->>M: exécute l'outil validé
-        M-->>A: résultat déterministe
+        L-->>A: pensee + appel d'outil souhaite
+        A->>A: l'arbitre verifie l'appel
+        Note over A: refuse si ce n'est pas<br/>le calcul prioritaire reel
+        A->>M: execute l'outil valide
+        M-->>A: resultat deterministe
     end
-    A->>A: 🛡️ valide la réponse finale<br/>(doit venir des outils)
-    A-->>U: ✅ 3 * 4 + 2 = 14
+    A->>A: valide la reponse finale
+    A-->>U: 3 * 4 + 2 = 14
 ```
 
-## Les briques
+## Les services
 
 | Service | Port | Rôle |
 |---|---|---|
-| `ui` | 8501 | **Streamlit** : on voit le raisonnement du modèle (💭) et chaque appel d'outil MCP (🔧) |
-| `agent` | 8080 | Boucle **ReAct** écrite à la main + **arbitre anti-triche** (API `POST /calcul`) |
+| `ui` | 8501 | **Streamlit** en mode chat : raisonnement du modèle et appels MCP affichés **en direct** (streaming) |
+| `agent` | 8080 | Boucle **ReAct** + **arbitre anti-triche**. API : `POST /calcul` (bloquant) et `POST /calcul/stream` (SSE) |
 | `mcp-server` | 8000 | Serveur **FastMCP** : les 4 outils de calcul, découvrables par tout client MCP |
-| `ollama` | 11434 | Le petit LLM local (`gemma4:e4b` par défaut) — aucun cloud |
-| `mcpjam` | 6274 | **MCPJam** : inspecteur pour tester les outils MCP à la main |
+| `ollama` | 11434 | Le petit LLM local (`gemma4:e4b` par défaut), accéléré par le **GPU** |
+| `mcpjam` | 6274 | **MCPJam** : inspecteur pour tester les outils MCP à la main, sans LLM |
 
-### Les 4 outils MCP ([mcp_server/serveur.py](mcp_server/serveur.py))
+## Démarrage rapide
 
-1. **`convertir_texte_en_formule`** — « trois fois quatre plus deux » → `3 * 4 + 2`
-   (nombres en lettres de 0 à 100, chiffres, décimaux, parenthèses).
-2. **`trouver_calcul_prioritaire`** — `3 * 4 + 2` → « il faut d'abord faire `3 * 4` »
-   (parenthèses d'abord, puis `*` `/`, puis de gauche à droite).
-3. **`calculer`** — **exactement deux opérandes** et un opérateur : `(3, "*", 4)` → `12`.
-4. **`remplacer_calcul_par_resultat`** — `3 * 4 + 2` + (`3 * 4`, `12`) → `12 + 2`.
-
-La logique pure vit dans [outils_calcul.py](mcp_server/outils_calcul.py),
-testable sans serveur ni LLM ; [serveur.py](mcp_server/serveur.py) ne fait que
-l'exposer : une fonction Python + `@mcp.tool` = un outil découvrable par
-n'importe quel client MCP.
-
-### La boucle ReAct ([agent/boucle_react.py](agent/boucle_react.py))
-
-À chaque itération : **Penser** (le LLM reçoit la conversation et la liste des
-outils, découverte dynamiquement via MCP) → **Agir** (il demande un outil) →
-**Observer** (le résultat lui est renvoyé) … jusqu'à la réponse finale.
-L'agent n'a *aucune* connaissance codée en dur des outils : il les découvre
-avec `client.list_tools()`. Les modèles qui « pensent » (gemma4, deepseek-r1…)
-renvoient un champ `thinking` : il est capturé dans la trace (étapes 💭) mais
-jamais renvoyé dans l'historique.
-
-## Les modèles ne sont téléchargés qu'UNE fois (partage entre projets)
-
-Chaque projet Docker qui crée son propre volume Ollama retélécharge les mêmes
-gigaoctets. Ici, `.env` pointe vers un **dossier hôte partagé** :
-
-```bash
-# .env
-OLLAMA_MODELES=/home/florian/mes_projets/feedbacks-projet/.ollama  # ~12 Go déjà en place
-MODELE=gemma4:e4b
-```
-
-Le compose le monte dans le conteneur (`${OLLAMA_MODELES:-ollama_models}:/root/.ollama`) :
-`gemma4:e4b` et `phi4-mini` sont disponibles immédiatement, zéro téléchargement.
-Commentez la variable pour retomber sur un volume local au projet. Le service
-`ollama-init` fait un `ollama pull` du modèle manquant au premier démarrage.
-
-## Démarrage
-
-Prérequis : Docker + Docker Compose.
+Prérequis : Docker + Docker Compose. GPU nvidia recommandé (voir plus bas) mais
+non obligatoire.
 
 ```bash
 docker compose up -d --build
 ```
 
-Puis, au choix :
+Puis :
 
-- **Interface Streamlit** : http://localhost:8501 — posez une question, puis
-  dépliez les étapes : 💭 raisonnement du modèle, 🔧 appels d'outils MCP
-  (arguments + résultats), ⛔ refus de l'arbitre, ✅ réponse validée.
-- **MCPJam (inspecteur MCP)** : http://localhost:6274 — ajoutez un serveur
-  HTTP avec l'URL `http://mcp-server:8000/mcp/` et appelez les outils à la
-  main, sans LLM.
+- **Interface Streamlit** (recommandée) : http://localhost:8501
+  Tapez une question, le raisonnement et les appels MCP s'affichent au fil de l'eau.
+- **MCPJam** (inspecteur MCP) : http://localhost:6274
+  Connectez le serveur `http://mcp-server:8000/mcp/` et appelez les outils à la main.
 - **API** :
   ```bash
   curl -X POST http://localhost:8080/calcul \
        -H "Content-Type: application/json" \
        -d '{"question": "trois fois quatre plus deux"}'
   ```
-- **CLI avec trace pas-à-pas** :
+- **CLI** (trace pas à pas dans le terminal) :
   ```bash
   docker compose exec agent python -m agent.cli "trois fois quatre plus deux"
   ```
 
-Exemple de sortie CLI (vraie exécution, gemma4:e4b) :
+## Accélération GPU
 
-```
-❓ trois fois quatre plus deux
+Le service `ollama` réserve un GPU nvidia dans [`docker-compose.yml`](docker-compose.yml) :
 
-  💭 The user wants me to start by converting the text "trois fois quatre plus
-     deux" into a mathematical formula using the convertir_texte_en_formule tool…
-  🔧 convertir_texte_en_formule({"texte": "trois fois quatre plus deux"})
-     ↳ "3 * 4 + 2"
-  🔧 trouver_calcul_prioritaire({"formule": "3 * 4 + 2"})
-     ↳ {"termine": false, "gauche": 3.0, "operateur": "*", "droite": 4.0,
-        "sous_expression": "3 * 4", "explication": "« * » et « / » sont prioritaires…"}
-  🔧 calculer({"droite": 4, "gauche": 3, "operateur": "*"})
-     ↳ 12.0
-  🔧 remplacer_calcul_par_resultat({"formule": "3 * 4 + 2", "sous_expression": "3 * 4", "valeur": 12})
-     ↳ "12 + 2"
-  🔧 trouver_calcul_prioritaire({"formule": "12 + 2"})
-     ↳ {…, "sous_expression": "12 + 2", "explication": "…de gauche à droite."}
-  🔧 calculer({"droite": 2, "gauche": 12, "operateur": "+"})
-     ↳ 14.0
-  🔧 remplacer_calcul_par_resultat({"formule": "12 + 2", "sous_expression": "12 + 2", "valeur": 14})
-     ↳ "14"
-
-✅ 3 * 4 + 2 = 14 (8 itérations, réponse validée par l'arbitre)
+```yaml
+deploy:
+  resources:
+    reservations:
+      devices:
+        - driver: nvidia
+          count: 1
+          capabilities: [gpu]
 ```
 
-## Lancer les tests
+Ollama détecte et utilise le GPU automatiquement. Sur GPU, l'inférence passe de
+**~2 minutes à quelques secondes** par question — c'est ce qui rend le streaming
+agréable. Prérequis : le **nvidia-container-toolkit** installé côté hôte
+(vérifiez avec `docker run --rm --gpus all --entrypoint nvidia-smi ollama/ollama:latest -L`).
+Sans GPU nvidia, commentez le bloc `deploy` : Ollama tournera sur CPU.
+
+## Modèles Ollama partagés entre projets
+
+Pour ne pas retélécharger le même modèle dans chaque projet, `.env` pointe vers
+un dossier hôte partagé :
 
 ```bash
-# Niveaux 1 à 3 : unitaires + intégration MCP + agent avec faux LLM (< 2 s, sans LLM)
-docker compose --profile test run --rm tests
-
-# Niveau 4 : bout en bout, stack complète + vrai LLM (~2 min avec gemma4:e4b)
-docker compose --profile e2e run --rm tests-e2e
+# .env
+OLLAMA_MODELES=/chemin/vers/un/dossier/.ollama   # monté sur /root/.ollama
+MODELE=gemma4:e4b
 ```
 
-| Niveau | Fichier | Ce qui est prouvé |
-|---|---|---|
-| 1. Unitaire | [test_outils_calcul.py](tests/test_outils_calcul.py) | Les 4 outils sont corrects (50 cas, dont les garde-fous) |
-| 2. Intégration | [test_serveur_mcp.py](tests/test_serveur_mcp.py) | Le vrai protocole MCP : découverte, appels, erreurs (client en mémoire) |
-| 3. Agent | [test_agent_faux_llm.py](tests/test_agent_faux_llm.py) | La boucle + l'arbitre, avec des LLM scriptés honnêtes **et tricheurs** |
-| 4. E2E | [test_e2e.py](tests/test_e2e.py) | Le vrai LLM résout, la trace prouve l'ordre des priorités, l'UI répond |
+Le compose le monte via `${OLLAMA_MODELES:-ollama_models}:/root/.ollama`.
+Commentez la variable pour utiliser un volume Docker local au projet. Le service
+`ollama-init` fait un `ollama pull` du modèle s'il manque, au premier démarrage.
+
+## Les 4 outils MCP
+
+Définis dans [`mcp_server/serveur.py`](mcp_server/serveur.py), logique pure dans
+[`mcp_server/outils_calcul.py`](mcp_server/outils_calcul.py) :
+
+1. **`convertir_texte_en_formule`** — « trois fois quatre plus deux » donne `3 * 4 + 2`
+   (nombres en lettres de 0 à 100, chiffres, décimaux, parenthèses).
+2. **`trouver_calcul_prioritaire`** — `3 * 4 + 2` indique qu'il faut d'abord faire `3 * 4`
+   (parenthèses d'abord, puis `*` et `/`, puis de gauche à droite).
+3. **`calculer`** — **exactement deux opérandes** et un opérateur : `(3, "*", 4)` donne `12`.
+4. **`remplacer_calcul_par_resultat`** — `3 * 4 + 2` plus (`3 * 4`, `12`) donne `12 + 2`.
+
+Pourquoi `calculer` ne prend que deux opérandes ? Parce que c'est **le coeur de
+l'anti-triche** : en forçant une seule opération binaire à la fois, le modèle ne
+peut pas faire un calcul à plusieurs étapes de tête. Il doit décomposer via les
+outils, et l'arbitre vérifie que chaque opération est bien la prioritaire.
+Détails dans [docs/mcp.md](docs/mcp.md) et [docs/agent.md](docs/agent.md).
 
 ## L'anti-triche : trois niveaux de défense
 
@@ -191,99 +169,101 @@ Le but : **il doit être impossible que la réponse vienne du LLM lui-même.**
 1. **Le prompt système** lui interdit de calculer. *Niveau faible : un prompt
    n'est jamais une garantie.*
 2. **Les outils sont stricts** : `remplacer_calcul_par_resultat` refuse une
-   sous-expression qui n'est pas LE calcul prioritaire, et refuse une valeur
-   qui n'est pas le vrai résultat (le modèle ne peut pas « glisser » un
-   chiffre inventé dans la formule).
-3. **L'arbitre** ([agent/arbitre.py](agent/arbitre.py)) — la vraie garantie,
-   en code, côté orchestrateur :
-   - il suit l'état réel du calcul (formule courante, dernier résultat d'outil) ;
-   - il vérifie chaque appel **avant** exécution : enchaînement imposé, et
-     `calculer` doit porter sur le calcul prioritaire (vérité demandée au
-     serveur MCP, jamais au LLM) ;
-   - il **refuse toute réponse finale** tant que la formule n'a pas été
-     réduite pas à pas par les outils, ou si le nombre annoncé diffère de la
-     formule réduite. Le refus est renvoyé au LLM, qui doit recommencer.
+   sous-expression qui n'est pas LE calcul prioritaire, et refuse une valeur qui
+   n'est pas le vrai résultat.
+3. **L'arbitre** ([`agent/arbitre.py`](agent/arbitre.py)) — la vraie garantie,
+   en code, côté orchestrateur : il suit l'état réel du calcul, vérifie chaque
+   appel **avant** exécution (la vérité « quel est le calcul prioritaire » est
+   demandée au serveur MCP, jamais au LLM), et **refuse toute réponse finale**
+   tant que la formule n'a pas été réduite pas à pas par les outils.
 
-Le test [`test_tricheur_total_rejete`](tests/test_agent_faux_llm.py) le
-prouve : un faux LLM qui répond « 14 » direct — *le bon résultat !* — est
-rejeté, car la réponse n'a pas été **construite** par les outils.
+Le test `test_tricheur_total_rejete` le prouve : un faux LLM qui répond « 14 »
+directement — *le bon résultat* — est rejeté, car la réponse n'a pas été
+**construite** par les outils.
 
-## Honnêteté pédagogique : le « guidage »
+## Le streaming et l'interface chat
 
-Un petit modèle suit mal un protocole en 4 outils sans aide. Trois constats
-issus des tests réels sur `qwen2.5:1.5b` (reproduisez-les !) :
+L'agent expose deux endpoints qui partagent **la même boucle** :
 
-- avec un long prompt système détaillant le protocole, le modèle « calcule »
-  tout seul en texte et n'appelle aucun outil ;
-- une consigne glissée dans un résultat d'outil est **recopiée** au lieu
-  d'être exécutée ;
-- une consigne dans un message *user* séparé (« Appelle maintenant l'outil X
-  avec … ») est suivie correctement.
+- `POST /calcul` renvoie tout en une fois (utilisé par l'API, la CLI, les tests) ;
+- `POST /calcul/stream` émet chaque étape en **Server-Sent Events** dès qu'elle
+  se produit.
 
-L'agent envoie donc après chaque outil une consigne dérivée **uniquement des
-résultats d'outils** (jamais d'un calcul caché) — et l'arbitre vérifie de
-toute façon chaque appel. Avec un modèle plus capable, désactivez-le
-(`GUIDAGE: "0"` dans l'environnement du service `agent`) pour voir s'il suit
-le protocole seul.
+Côté code, la boucle ReAct est un **générateur asynchrone** (`iter_evenements`)
+qui `yield` chaque événement ; `resoudre` le consomme en bloquant, le streaming
+le relaie en direct. L'UI Streamlit ([`ui/app.py`](ui/app.py)) consomme le flux
+SSE et affiche pensées et appels MCP au fil de l'eau. Détails dans
+[docs/agent.md](docs/agent.md).
 
-Autres filets de sécurité visibles dans le code ([boucle_react.py](agent/boucle_react.py)) :
-
-- les petits modèles émettent parfois l'appel d'outil en JSON *texte* plutôt
-  que dans le champ structuré `tool_calls` ; la boucle le parse
-  (`extraire_appel_textuel`) — c'est le ReAct « historique », où l'action est
-  extraite de la sortie texte du modèle ;
-- `num_predict` est plafonné : à température 0, un petit modèle peut partir
-  en génération infinie (vécu : 5 minutes avant le timeout d'Ollama).
-
-## Changer de modèle
+## Lancer les tests
 
 ```bash
-# .env — tout modèle Ollama avec support des outils convient :
-MODELE=gemma4:e4b      # défaut : raisonnement « thinking » visible, ~9,6 Go
-MODELE=qwen2.5:1.5b    # mini (~1 Go), rapide, pas de thinking
-MODELE=phi4-mini       # déjà présent dans le dossier partagé
+# Niveaux 1 a 3 : unitaires + integration MCP + agent avec faux LLM (rapide, sans LLM)
+docker compose --profile test run --rm tests
+
+# Niveau 4 : bout en bout, stack complete + vrai LLM
+docker compose --profile e2e run --rm tests-e2e
 ```
 
-Puis `docker compose up -d` (le service `ollama-init` télécharge ce qui manque
-dans le dossier partagé — une seule fois pour tous vos projets).
+| Niveau | Fichier | Ce qui est prouvé |
+|---|---|---|
+| 1. Unitaire | [test_outils_calcul.py](tests/test_outils_calcul.py) | Les 4 outils sont corrects (dont les garde-fous anti-triche) |
+| 2. Intégration | [test_serveur_mcp.py](tests/test_serveur_mcp.py) | Le vrai protocole MCP : découverte, appels, erreurs |
+| 3. Agent | [test_agent_faux_llm.py](tests/test_agent_faux_llm.py) | La boucle + l'arbitre, avec des LLM scriptés honnêtes **et tricheurs** |
+| 4. E2E | [test_e2e.py](tests/test_e2e.py) | Le vrai LLM résout, la trace prouve l'ordre des priorités, l'UI répond |
 
 ## Arborescence
 
 ```
 .
-├── docker-compose.yml      # les 5 services + profils de test
-├── .env                    # MODELE + OLLAMA_MODELES (dossier partagé)
+├── docker-compose.yml      # 5 services + profils de test
+├── .env                    # MODELE + OLLAMA_MODELES (dossier partage)
 ├── mcp_server/
-│   ├── outils_calcul.py    # logique pure (parseur FR, priorités, garde-fous)
+│   ├── outils_calcul.py    # logique pure (parseur FR, priorites, garde-fous)
 │   └── serveur.py          # exposition FastMCP (4 outils + /sante)
 ├── agent/
-│   ├── llm_ollama.py       # client /api/chat d'Ollama (interface : 1 méthode)
+│   ├── llm_ollama.py       # client /api/chat d'Ollama
 │   ├── arbitre.py          # l'anti-triche
-│   ├── boucle_react.py     # la boucle Penser → Agir → Observer
-│   ├── app.py              # API FastAPI (+ mini page HTML de secours)
-│   └── cli.py              # trace pas-à-pas dans le terminal
+│   ├── boucle_react.py     # la boucle ReAct (generateur d'evenements)
+│   ├── app.py              # API FastAPI (/calcul et /calcul/stream)
+│   └── cli.py              # trace pas a pas dans le terminal
 ├── ui/
-│   └── app.py              # Streamlit : raisonnement + outils MCP visibles
-└── tests/                  # 4 niveaux (cf. tableau ci-dessus)
+│   └── app.py              # Streamlit (chat + streaming des etapes)
+├── tests/                  # 4 niveaux (voir tableau)
+└── docs/                   # tutoriels : agent.md, mcp.md, mcpjam.md
 ```
+
+## Réutiliser ce projet comme socle
+
+Ce dépôt est conçu pour servir de point de départ à d'autres agents MCP :
+
+1. **Changer de modèle** : modifiez `MODELE` dans `.env` (tout modèle Ollama
+   supportant l'appel d'outils convient ; voir [docs/agent.md](docs/agent.md)).
+2. **Ajouter un outil MCP** : une fonction Python + un décorateur `@mcp.tool`
+   suffit ; l'agent le découvre tout seul. Pas à pas dans [docs/mcp.md](docs/mcp.md).
+3. **Brancher un autre serveur MCP** : l'agent ne connaît aucun outil en dur, il
+   les découvre via `list_tools()`. On peut pointer vers n'importe quel serveur
+   MCP, voire en orchestrer plusieurs.
+4. **Inspecter sans coder** : MCPJam permet de tester un serveur MCP à la main
+   avant même d'écrire l'agent. Voir [docs/mcpjam.md](docs/mcpjam.md).
 
 ## Limites connues (volontaires, pour rester lisible)
 
-- Le parseur français couvre 0–100, `+ - * /`, décimaux et parenthèses ; pas
-  de « mille », ni de puissances.
-- Pas de nombres négatifs **en entrée** (mais les résultats intermédiaires
-  négatifs sont gérés : « deux moins cinq plus dix » → 7).
+- Le parseur français couvre 0 à 100, `+ - * /`, décimaux et parenthèses ; pas
+  de « mille » ni de puissances.
+- Pas de nombres négatifs **en entrée** (les résultats intermédiaires négatifs
+  sont gérés : « deux moins cinq plus dix » donne 7).
 - Un seul tour de question/réponse (pas de mémoire de conversation).
+- Le streaming est au niveau **étape** (chaque pensée/appel apparaît en entier),
+  pas au niveau **token**. Suffisant et lisible ; le token par token serait une
+  évolution possible.
 
 ## Exercices pour aller plus loin
 
 1. Ajoutez un outil `puissance(base, exposant)` — il faut toucher au parseur,
-   aux priorités, et… à rien d'autre : l'agent découvre les outils tout seul.
-2. Essayez `GUIDAGE=0` avec gemma4:e4b : le modèle suit-il le protocole sans
-   aide ? Et qwen2.5:1.5b ?
-3. Écrivez un test « LLM malicieux » de plus : par exemple un modèle qui
-   appelle `calculer` avec les bons opérandes mais annonce ensuite un autre
-   nombre dans `REPONSE FINALE`.
-4. Dans MCPJam (http://localhost:6274), connectez `http://mcp-server:8000/mcp/`
-   et tentez de tricher à la main : appelez `remplacer_calcul_par_resultat`
-   avec une valeur fausse — l'outil refuse, sans aucun LLM dans la boucle.
+   aux priorités, et à rien d'autre : l'agent découvre l'outil tout seul.
+2. Essayez `GUIDAGE=0` (variable d'environnement du service `agent`) avec
+   gemma4 : le modèle suit-il le protocole sans aide ?
+3. Dans MCPJam, connectez `http://mcp-server:8000/mcp/` et tentez de tricher :
+   appelez `remplacer_calcul_par_resultat` avec une valeur fausse. L'outil
+   refuse, sans aucun LLM dans la boucle.

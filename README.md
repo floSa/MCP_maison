@@ -94,7 +94,7 @@ docker compose up -d --build
 
 Puis :
 
-- **Interface Streamlit** (recommandée) : http://localhost:8501
+- **Interface Streamlit** (recommandée) : http://localhost:8504
   Tapez une question, le raisonnement et les appels MCP s'affichent au fil de l'eau.
   (Les raccourcis développeur de Streamlit — dont la touche « C » qui ouvrait la
   boîte « Clear caches » au moindre Ctrl+C — sont désactivés via

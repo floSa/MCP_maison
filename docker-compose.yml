@@ -100,7 +100,7 @@ services:
     build: ./ui
     container_name: calculatrice-ui
     ports:
-      - "8501:8501"
+      - "8504:8501"
     environment:
       AGENT_URL: http://agent:8080
     depends_on:

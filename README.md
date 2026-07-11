@@ -282,3 +282,28 @@ Ce dépôt est conçu pour servir de point de départ à d'autres agents MCP :
 3. Dans MCPJam, connectez `http://mcp-server:8000/mcp/` et tentez de tricher :
    appelez `remplacer_calcul_par_resultat` avec une valeur fausse. L'outil
    refuse, sans aucun LLM dans la boucle.
+
+## Licences & composants
+
+Le code de ce projet est distribué sous licence **MIT — Copyright (c) 2026 floSa**
+`<à confirmer : pas de fichier LICENSE>`.
+
+Composants tiers utilisés (images Docker et bibliothèques Python réellement
+déclarées dans les `requirements.txt` des services) :
+
+| Composant | Rôle | Licence |
+|---|---|---|
+| **Ollama** (`ollama/ollama:latest`) | Serveur d'inférence du LLM local (services `ollama`, `ollama-init`) | MIT |
+| **Modèle LLM** (`qwen2.5:1.5b` par défaut, `gemma4:e4b` mentionné) | Poids du petit LLM local servi par Ollama | `<à confirmer — dépend du modèle : Qwen2.5 = Apache-2.0, Gemma = Gemma Terms of Use>` |
+| **MCPJam Inspector** (`mcpjam/mcp-inspector:latest`) | Inspecteur MCP pour tester les outils à la main (service `mcpjam`) | `<à confirmer>` |
+| **Python** (image de base des services `agent`, `mcp-server`, `ui`, `tests`) | Runtime des services applicatifs | PSF (Python Software Foundation License) |
+| **FastMCP** (`fastmcp>=2.10,<3`) | Serveur et client MCP (mcp-server + agent + tests) | Apache-2.0 |
+| **FastAPI** (`fastapi>=0.110`) | API HTTP de l'agent (`/calcul`, `/calcul/stream`) | MIT |
+| **Uvicorn** (`uvicorn>=0.29`) | Serveur ASGI qui sert FastAPI | BSD-3-Clause |
+| **HTTPX** (`httpx>=0.27`) | Client HTTP (appels Ollama, MCP, inter-services) | BSD-3-Clause |
+| **Streamlit** (`streamlit>=1.36`) | Interface de chat / streaming (service `ui`) | Apache-2.0 |
+| **pytest** (`pytest>=8`) | Cadre de tests (niveaux 1 à 4) | MIT |
+| **pytest-asyncio** (`pytest-asyncio>=0.23`) | Support des tests asynchrones | Apache-2.0 |
+
+> Les licences marquées `<à confirmer>` doivent être vérifiées à la source avant
+> toute redistribution.

@@ -11,6 +11,13 @@ est refusé.
 L'objectif pédagogique : voir clairement **le raisonnement du modèle** et **les
 appels MCP**, étape par étape, en direct dans une interface de chat.
 
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![pip](https://img.shields.io/badge/pip-package_manager-3775A9?logo=pypi&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![FastMCP](https://img.shields.io/badge/FastMCP-2.10-000000)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.110-009688?logo=fastapi&logoColor=white)
+![Streamlit](https://img.shields.io/badge/Streamlit-1.36-FF4B4B?logo=streamlit&logoColor=white)
+
 > Documentation détaillée, en mode tutoriel, dans le dossier [`docs/`](docs/) :
 > [l'agent ReAct](docs/agent.md) · [le serveur MCP](docs/mcp.md) ·
 > [MCPJam, l'inspecteur](docs/mcpjam.md).

@@ -1,0 +1,42 @@
+# Override : branche l'app sur le service Ollama CENTRAL (repo llm-service)
+# au lieu de lancer l'Ollama local + le puller ollama-init.
+#
+#   Autonome (Ollama local embarqué) :
+#     docker compose up -d --build
+#   Branché sur le service central (llm-service doit tourner) :
+#     docker compose -f docker-compose.yml -f docker-compose.external-llm.yml up -d --build
+#
+# Prérequis : `make up` dans llm-service (Ollama central + réseau « llm-net »).
+services:
+  # 1. Neutralise l'Ollama local ET son puller de modèle.
+  ollama:
+    deploy:
+      replicas: 0
+  ollama-init:
+    deploy:
+      replicas: 0
+
+  # 2. Les services qui parlent au LLM pointent vers le central + rejoignent llm-net.
+  mcp-server:
+    environment:
+      OLLAMA_URL: http://ollama-central:11434
+      MODELE: ${MODELE:-gemma4:e4b}
+    networks:
+      - default
+      - llm-net
+
+  agent:
+    environment:
+      OLLAMA_URL: http://ollama-central:11434
+      MODELE: ${MODELE:-gemma4:e4b}
+    # Retire la dépendance à ollama-init (qui ne tourne plus).
+    depends_on: !reset
+      mcp-server:
+        condition: service_healthy
+    networks:
+      - default
+      - llm-net
+
+networks:
+  llm-net:
+    external: true

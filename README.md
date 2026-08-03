@@ -14,9 +14,9 @@ appels MCP**, étape par étape, en direct dans une interface de chat.
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![pip](https://img.shields.io/badge/pip-package_manager-3775A9?logo=pypi&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
-![FastMCP](https://img.shields.io/badge/FastMCP-2.10-000000)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.110-009688?logo=fastapi&logoColor=white)
-![Streamlit](https://img.shields.io/badge/Streamlit-1.36-FF4B4B?logo=streamlit&logoColor=white)
+![FastMCP](https://img.shields.io/badge/FastMCP-2.14-000000)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.141-009688?logo=fastapi&logoColor=white)
+![Streamlit](https://img.shields.io/badge/Streamlit-1.60-FF4B4B?logo=streamlit&logoColor=white)
 
 > Documentation détaillée, en mode tutoriel, dans le dossier [`docs/`](docs/) :
 > [l'agent ReAct](docs/agent.md) · [le serveur MCP](docs/mcp.md) ·
@@ -304,13 +304,13 @@ déclarées dans les `requirements.txt` des services) :
 | **Modèle LLM** (`qwen2.5:1.5b` par défaut, `gemma4:e4b` mentionné) | Poids du petit LLM local servi par Ollama | `<à confirmer — dépend du modèle : Qwen2.5 = Apache-2.0, Gemma = Gemma Terms of Use>` |
 | **MCPJam Inspector** (`mcpjam/mcp-inspector:latest`) | Inspecteur MCP pour tester les outils à la main (service `mcpjam`) | `<à confirmer>` |
 | **Python** (image de base des services `agent`, `mcp-server`, `ui`, `tests`) | Runtime des services applicatifs | PSF (Python Software Foundation License) |
-| **FastMCP** (`fastmcp>=2.10,<3`) | Serveur et client MCP (mcp-server + agent + tests) | Apache-2.0 |
-| **FastAPI** (`fastapi>=0.110`) | API HTTP de l'agent (`/calcul`, `/calcul/stream`) | MIT |
-| **Uvicorn** (`uvicorn>=0.29`) | Serveur ASGI qui sert FastAPI | BSD-3-Clause |
-| **HTTPX** (`httpx>=0.27`) | Client HTTP (appels Ollama, MCP, inter-services) | BSD-3-Clause |
-| **Streamlit** (`streamlit>=1.36`) | Interface de chat / streaming (service `ui`) | Apache-2.0 |
-| **pytest** (`pytest>=8`) | Cadre de tests (niveaux 1 à 4) | MIT |
-| **pytest-asyncio** (`pytest-asyncio>=0.23`) | Support des tests asynchrones | Apache-2.0 |
+| **FastMCP** (`fastmcp>=2.14,<3`) | Serveur et client MCP (mcp-server + agent + tests) | Apache-2.0 |
+| **FastAPI** (`fastapi>=0.141`) | API HTTP de l'agent (`/calcul`, `/calcul/stream`) | MIT |
+| **Uvicorn** (`uvicorn>=0.52`) | Serveur ASGI qui sert FastAPI | BSD-3-Clause |
+| **HTTPX** (`httpx>=0.28`) | Client HTTP (appels Ollama, MCP, inter-services) | BSD-3-Clause |
+| **Streamlit** (`streamlit>=1.60`) | Interface de chat / streaming (service `ui`) | Apache-2.0 |
+| **pytest** (`pytest>=8.4`) | Cadre de tests (niveaux 1 à 4) | MIT |
+| **pytest-asyncio** (`pytest-asyncio>=1.4`) | Support des tests asynchrones | Apache-2.0 |
 
 > Les licences marquées `<à confirmer>` doivent être vérifiées à la source avant
 > toute redistribution.
